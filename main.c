@@ -3,6 +3,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <stdlib.h>
+#include "parse.h"
 
 #define BUFFER_SIZE 1024
 
@@ -10,6 +11,7 @@
 #define STDOUT 1
 #define STDERR 2
 
+// TODO ctrl C signal!
 
 // TODO write Makefile
 // TODO write README
@@ -41,14 +43,13 @@ typedef void (*sighandler_t)(int);
 // Function declarations
 // =====================
 
-int atoi(const char* str);
+int atoi_(const char* str);
 int shredder(int time_limit);
 size_t read_discard_overflow(char *buf, size_t nbyte);
-void handle_fork(char *input, size_t input_length, int time_limit);
+void handle_fork(char **args, int time_limit);
 void parent(int time_limit);
 void alarm_handler(int signal);
-void child(char *input, size_t input_length);
-void get_path(char *path, char *input, size_t input_length);
+void child(char **args);
 
 
 // System calls wrappers
@@ -73,7 +74,7 @@ int main(int argc, char** argv) {
     if (argc == 1) {
         time_limit = 0;
     } else {
-        time_limit = atoi(argv[1]);
+        time_limit = atoi_(argv[1]);
         if (time_limit == 0) {
             write(STDERR, "Invalid timeout argument.\n", 26);
             _exit(1);
@@ -89,7 +90,7 @@ int main(int argc, char** argv) {
  *
  * Like stdlib's atoi, returns 0 for invalid inputs.
  */
-int atoi(const char* str) {
+int atoi_(const char* str) {
     // get the index of the last digit
     int i = 0;
     while (str[i] != '\0') {
@@ -132,7 +133,22 @@ int shredder(int time_limit) {
             continue;
         }
 
-        handle_fork(input, input_length, time_limit);
+        char** args = parse_input(input, input_length);
+
+        if (args[0] == NULL) {
+            free(args);
+            continue;
+        } else {
+            handle_fork(args, time_limit);
+
+            // free memory
+            int i = 0;
+            while (args[i] != NULL) {
+                free(args[i]);
+                i++;
+            }
+            free(args);
+        }
 
     }
 }
@@ -147,7 +163,7 @@ size_t read_discard_overflow(char *buf, size_t nbyte) {
     if (input_length < nbyte || buf[nbyte - 1] == '\n') {
         return input_length;
     } else {
-        while(read_wrapper(STDIN, buf, nbyte) == input_length);
+        while(read_wrapper(STDIN, buf, nbyte) == nbyte);
         return 0;
     }
 }
@@ -157,13 +173,13 @@ size_t read_discard_overflow(char *buf, size_t nbyte) {
  * Controls the flow of execution depending on whether we are in the child
  * or parent process.
  */
-void handle_fork(char *input, size_t input_length, int time_limit) {
+void handle_fork(char **args, int time_limit) {
 
     // sets the global variable
     pid = fork_wrapper();
 
     if (pid == 0) {
-        child(input, input_length);
+        child(args);
     } else {
         parent(time_limit);
     }
@@ -198,50 +214,46 @@ void alarm_handler(int signal) {
  * If path to the command is invalid, exit with error code.
  *
  * Otherwise, execute the command.
+ *
+ * NOTE ABOUT MEMORY LEAKS: we do not free 'args' here. If execve succeeds, memory gets replaced anyway.
+ * If it fails, the child process terminates and its whole memory is freed anyway.
  */
-void child(char *input, size_t input_length) {
-    char path[input_length];
-    get_path(path, input, input_length);
-
-    // we hardcoded the first element of argv to be "foo"; it doesn't seem to matter anyway
-    char* argv[] = {"foo", NULL};
-
-    execve_wrapper(path, argv);
+void child(char **args) {
+    execve_wrapper(args[0], args);
 }
 
 
-
-/*
- * Copies the path-to-command part of the input to 'path'.
- *
- * Path-to-command part is assumed to be the part of the input until the first space.
- * Other whitespace is not handled.
- *
- * RETURN VALUE
- *
- * -1 if the input has length 0 or begins with a space, 0 otherwise.
- */
-void get_path(char *path, char *input, size_t input_length) {
-    // first find number of characters until the first space
-    size_t path_size = input_length;
-    for (size_t i = 0; i < input_length; ++i) {
-        if (input[i] == ' ' || input[i] == '\n') {
-            // at this point i equals the path size minus 1
-            path_size = i;
-            break;
-        }
-    }
-
-    if (path_size == 0) {
-        write(STDERR, "Input was empty or started with a space.\n", 41);
-        _exit(1);
-    }
-
-    for (int j = 0; j < path_size; ++j) {
-        path[j] = input[j];
-    }
-    path[path_size] = '\0';
-}
+///*
+// * Copies the path-to-command part of the input to 'path'.
+// *
+// * Path-to-command part is assumed to be the part of the input until the first space.
+// * Other whitespace is not handled.
+// *
+// * RETURN VALUE
+// *
+// * -1 if the input has length 0 or begins with a space, 0 otherwise.
+// */
+//void get_path(char *path, char *input, size_t input_length) {
+//    // first find number of characters until the first space
+//    size_t path_size = input_length;
+//    for (size_t i = 0; i < input_length; ++i) {
+//        if (input[i] == ' ' || input[i] == '\n') {
+//            // at this point i equals the path size minus 1
+//            path_size = i;
+//            break;
+//        }
+//    }
+//
+//    if (path_size == 0) {
+//        write(STDERR, "Input was empty or started with a space.\n", 41);
+//        _exit(1);
+//    }
+//
+//    for (int j = 0; j < path_size; ++j) {
+//        path[j] = input[j];
+//    }
+//    path[path_size] = '\0';
+//}
 
 
 // ====================
