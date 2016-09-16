@@ -3,6 +3,6 @@
 
 #include <stddef.h>
 
-char** parse_input(char *input, size_t input_length);
+char **parse_input(char *input, size_t input_length);
 
 #endif //PROJECT0_PARSE_H

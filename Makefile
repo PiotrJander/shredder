@@ -1,14 +1,13 @@
-CC=clang
-CFLAGS=-c -Wall
-LDFLAGS=
-SOURCES=main.cpp hello.cpp factorial.cpp
-OBJECTS=$(SOURCES:.cpp=.o)
-EXECUTABLE=hello
+all: main
 
-all: $(SOURCES) $(EXECUTABLE)
+main: main.o parse.o
+	clang main.o parse.o -o shredder
 
-$(EXECUTABLE): $(OBJECTS)
-    $(CC) $(LDFLAGS) $(OBJECTS) -o $@
+main.o: main.c
+	clang -c main.c
 
-.cpp.o:
-    $(CC) $(CFLAGS) $< -o $@
+parse.o: parse.c
+	clang -c parse.c
+
+clean:
+	rm *o shredder

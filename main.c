@@ -11,23 +11,13 @@
 #define STDOUT 1
 #define STDERR 2
 
-// TODO ctrl C signal!
-
-// TODO write Makefile
-// TODO write README
-// TODO check with valgrind
-// TODO run on speclab
-
-// TODO attribute outside sources
-// TODO answer questions about signals in README
-
 
 // ================
 // Global variables
 // ================
 
 /*
- * Declared global so that it can be accessed by the alarm signal handler.
+ * Child process ID. Declared global so that it can be accessed by the alarm signal handler.
  */
 static int pid;
 
@@ -43,32 +33,61 @@ typedef void (*sighandler_t)(int);
 // Function declarations
 // =====================
 
-int atoi_(const char* str);
-int shredder(int time_limit);
-size_t read_discard_overflow(char *buf, size_t nbyte);
-void handle_fork(char **args, int time_limit);
-void parent(int time_limit);
-void alarm_handler(int signal);
-void child(char **args);
+int
+atoi_(const char *str);
+
+int
+shredder(int time_limit);
+
+size_t
+read_discard_overflow(char *buf, size_t nbyte);
+
+void
+handle_fork(char **args, int time_limit);
+
+void
+parent(int time_limit);
+
+void
+alarm_handler(int signal);
+
+void
+sigint_handler(int signal);
+
+void
+child(char **args);
 
 
 // System calls wrappers
 
-void write_wrapper(int fildes, const void *buf, size_t nbyte);
-size_t read_wrapper(int fildes, void *buf, size_t nbyte);
-int fork_wrapper();
-void wait_wrapper();
-void execve_wrapper(const char *path, char *const argv[]);
-void signal_wrapper(int signum, sighandler_t handler);
-void kill_wrapper(int pid, int sig);
+void
+write_wrapper(int fildes, const void *buf, size_t nbyte);
+
+size_t
+read_wrapper(int fildes, void *buf, size_t nbyte);
+
+int
+fork_wrapper();
+
+void
+wait_wrapper();
+
+void
+execve_wrapper(const char *path, char *const argv[]);
+
+void
+signal_wrapper(int signum, sighandler_t handler);
+
+void
+kill_wrapper(int pid, int sig);
 
 
 // ====================
 // Function definitions
 // ====================
 
-int main(int argc, char** argv) {
-
+int main(int argc, char **argv)
+{
     int time_limit;
 
     if (argc == 1) {
@@ -85,41 +104,8 @@ int main(int argc, char** argv) {
 }
 
 
-/*
- * Parses a string into a base 10 integer.
- *
- * Like stdlib's atoi, returns 0 for invalid inputs.
- */
-int atoi_(const char* str) {
-    // get the index of the last digit
-    int i = 0;
-    while (str[i] != '\0') {
-        i++;
-    }
-
-    if (i == 0) {
-        // empty string
-        return 0;
-    }
-
-    // now we want to be looping back
-    int ret = 0;
-    int base = 1;
-    for (int j = i - 1; j >= 0 ; j--) {
-        int digit = str[j] - '0';
-        if (digit < 0 || digit > 9) {
-            // non-digit character
-            return 0;
-        }
-        ret += digit * base;
-        base *= 10;
-    }
-    return ret;
-}
-
-
-int shredder(int time_limit) {
-
+int shredder(int time_limit)
+{
     char input[BUFFER_SIZE];
 
     while (1) {
@@ -133,7 +119,7 @@ int shredder(int time_limit) {
             continue;
         }
 
-        char** args = parse_input(input, input_length);
+        char **args = parse_input(input, input_length);
 
         if (args[0] == NULL) {
             free(args);
@@ -149,21 +135,23 @@ int shredder(int time_limit) {
             }
             free(args);
         }
-
     }
 }
 
 
 /*
+ * Reads from STDIN, returns the input size.
  *
+ * If input is longer than 1024 bytes, returns 0. Rest of the input is read until empty.
  */
-size_t read_discard_overflow(char *buf, size_t nbyte) {
+size_t read_discard_overflow(char *buf, size_t nbyte)
+{
     size_t input_length = read_wrapper(STDIN, buf, nbyte);
 
     if (input_length < nbyte || buf[nbyte - 1] == '\n') {
         return input_length;
     } else {
-        while(read_wrapper(STDIN, buf, nbyte) == nbyte);
+        while (read_wrapper(STDIN, buf, nbyte) == nbyte);
         return 0;
     }
 }
@@ -173,9 +161,9 @@ size_t read_discard_overflow(char *buf, size_t nbyte) {
  * Controls the flow of execution depending on whether we are in the child
  * or parent process.
  */
-void handle_fork(char **args, int time_limit) {
-
-    // sets the global variable
+void handle_fork(char **args, int time_limit)
+{
+    // pid is a global variable
     pid = fork_wrapper();
 
     if (pid == 0) {
@@ -186,9 +174,10 @@ void handle_fork(char **args, int time_limit) {
 }
 
 
-void parent(int time_limit) {
-
+void parent(int time_limit)
+{
     signal_wrapper(SIGALRM, alarm_handler);
+    signal_wrapper(SIGINT, sigint_handler);
 
     // apparently there are no exception to be handled with 'alarm'
     alarm((unsigned int) time_limit);
@@ -197,13 +186,25 @@ void parent(int time_limit) {
 
     // since the child process has already terminated, we can cancel the alarm, if any
     alarm(0);
+
+    // also restore default SIGINT behaviour
+    signal_wrapper(SIGINT, NULL);
 }
 
 
-void alarm_handler(int signal) {
+void alarm_handler(int signal)
+{
     if (signal == SIGALRM) {
         kill_wrapper(pid, SIGKILL);
         write_wrapper(STDOUT, "Bwahaha ... tonight I dine on turtle soup\n", 42);
+    }
+}
+
+
+void sigint_handler(int signal)
+{
+    if (signal == SIGINT) {
+        kill_wrapper(pid, SIGKILL);
     }
 }
 
@@ -216,44 +217,50 @@ void alarm_handler(int signal) {
  * Otherwise, execute the command.
  *
  * NOTE ABOUT MEMORY LEAKS: we do not free 'args' here. If execve succeeds, memory gets replaced anyway.
- * If it fails, the child process terminates and its whole memory is freed anyway.
+ * If it fails, the child process terminates and its whole memory is freed by the OS.
  */
-void child(char **args) {
+void child(char **args)
+{
     execve_wrapper(args[0], args);
 }
 
 
-///*
-// * Copies the path-to-command part of the input to 'path'.
-// *
-// * Path-to-command part is assumed to be the part of the input until the first space.
-// * Other whitespace is not handled.
-// *
-// * RETURN VALUE
-// *
-// * -1 if the input has length 0 or begins with a space, 0 otherwise.
-// */
-//void get_path(char *path, char *input, size_t input_length) {
-//    // first find number of characters until the first space
-//    size_t path_size = input_length;
-//    for (size_t i = 0; i < input_length; ++i) {
-//        if (input[i] == ' ' || input[i] == '\n') {
-//            // at this point i equals the path size minus 1
-//            path_size = i;
-//            break;
-//        }
-//    }
-//
-//    if (path_size == 0) {
-//        write(STDERR, "Input was empty or started with a space.\n", 41);
-//        _exit(1);
-//    }
-//
-//    for (int j = 0; j < path_size; ++j) {
-//        path[j] = input[j];
-//    }
-//    path[path_size] = '\0';
-//}
+// ====================
+// Helper functions
+// ====================
+
+/*
+ * Parses a string into a base 10 integer.
+ *
+ * Like stdlib's atoi, returns 0 for invalid inputs.
+ */
+int atoi_(const char *str)
+{
+    // get the index of the last digit
+    int i = 0;
+    while (str[i] != '\0') {
+        i++;
+    }
+
+    // empty string
+    if (i == 0) {
+        return 0;
+    }
+
+    // now loop back
+    int ret = 0;
+    int base = 1;
+    for (int j = i - 1; j >= 0; j--) {
+        int digit = str[j] - '0';
+        if (digit < 0 || digit > 9) {
+            // non-digit character
+            return 0;
+        }
+        ret += digit * base;
+        base *= 10;
+    }
+    return ret;
+}
 
 
 // ====================
@@ -261,7 +268,8 @@ void child(char **args) {
 // ====================
 
 
-void write_wrapper(int fildes, const void *buf, size_t nbyte) {
+void write_wrapper(int fildes, const void *buf, size_t nbyte)
+{
     if (write(fildes, buf, nbyte) == -1) {
         perror("write");
         _exit(1);
@@ -269,7 +277,8 @@ void write_wrapper(int fildes, const void *buf, size_t nbyte) {
 }
 
 
-size_t read_wrapper(int fildes, void *buf, size_t nbyte) {
+size_t read_wrapper(int fildes, void *buf, size_t nbyte)
+{
     ssize_t status = read(fildes, buf, nbyte);
 
     switch (status) {
@@ -284,7 +293,8 @@ size_t read_wrapper(int fildes, void *buf, size_t nbyte) {
 }
 
 
-int fork_wrapper() {
+int fork_wrapper()
+{
     int pid = fork();
     if (pid == -1) {
         perror("fork");
@@ -295,29 +305,33 @@ int fork_wrapper() {
 }
 
 
-void wait_wrapper() {
+void wait_wrapper()
+{
     if (wait(NULL) == -1) {
         perror("wait");
         _exit(1);
     }
 }
 
-void execve_wrapper(const char *path, char *const *argv) {
-    char* envp[] = {NULL};
+void execve_wrapper(const char *path, char *const *argv)
+{
+    char *envp[] = {NULL};
     if (execve(path, argv, envp) == -1) {
         perror("execve");
         _exit(1);
     }
 }
 
-void signal_wrapper(int signum, sighandler_t handler) {
+void signal_wrapper(int signum, sighandler_t handler)
+{
     if (signal(signum, handler) == SIG_ERR) {
         perror("signal");
         _exit(1);
     }
 }
 
-void kill_wrapper(int pid, int sig) {
+void kill_wrapper(int pid, int sig)
+{
     if (kill(pid, sig) == -1) {
         perror("kill");
         _exit(1);
