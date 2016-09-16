@@ -8,7 +8,7 @@ Piotr Jander, piotr
 
 ## A list of submitted source files
 
-``
+~~~~~~~~~~~~~~~
 - main.c
 - Makefile
 - minunit.h
@@ -19,7 +19,7 @@ Piotr Jander, piotr
     - includes functions from parse.c
     - has its own main() function which needs uncommenting
     - file attached for reference only
-``
+~~~~~~~~~~~~~~~~~
 
 
 ## Extra credit answers
